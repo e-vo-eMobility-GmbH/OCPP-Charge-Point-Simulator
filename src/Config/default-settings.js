@@ -3,11 +3,11 @@ import stationSettings from './station-config'
 
 const defaultSettings = {
   mainSettings: {
-    protocol: 'ws',
-    address: 'localhost',
-    port: 5000,
-    chargePointId: '00000001111',
-    OCPPversion: 'ocpp1.6',
+    protocol: "ws",
+    address: "127.0.0.1",
+    port: "9099/ocpp/1.6/json/evo/",
+    chargePointId: "00000001111",
+    OCPPversion: "ocpp1.6",
     RFIDTag: nanoid(20),
     numberOfConnectors: 2,
   },
