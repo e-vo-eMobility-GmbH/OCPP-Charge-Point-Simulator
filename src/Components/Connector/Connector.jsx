@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { FormGroup, Typography, Paper, Box, Divider, Grid, Chip, Button, Tooltip, TextField, FormControl, InputLabel, Select, MenuItem } from '@mui/material'
 import { connectorData, connectorStatus, stopReason, connectors} from '../../common/constants';
@@ -28,10 +28,20 @@ const StyledButton = styled(Button)({
   '& .MuiButton-startIcon': { margin: 0 }
 });
 
+const carOptions = [
+  'Cupra Born',
+  'MG ZSEV',
+  'Tesla Model Y Facelift 2025',
+  'Audi Q4 E-Tron',
+  'Porsche Taycan'
+];
 
 const Connector = ({ id, status, centralSystemSend, settings, setSettings }) => {
   const [ meterError, setMeterError ] = useState(false)
   const [ localStatus, setLocalStatus ] = useState(connectorStatus.Available)
+  const [ autoMetering, setAutoMetering ] = useState(false)
+  const [ selectedCar, setSelectedCar ] = useState(carOptions[0]);
+  const intervalRef = useRef(null)
 
   const updateData = (field, data) => {
     if (field === 'currentMeterValue') {
@@ -69,6 +79,8 @@ const Connector = ({ id, status, centralSystemSend, settings, setSettings }) => 
         metaData.connectorId = connectors[id].connectorId
         metaData.transactionId = connectors[id].transactionId
         metaData.currentMeterValue = connectors[id].currentMeterValue
+        metaData.startMeterValue = connectors[id].startMeterValue // Pass startMeterValue for SoC calculation
+        metaData.selectedCar = selectedCar // Pass selected car to OCPP-Commands
         break;
       default:
         break;
@@ -76,6 +88,43 @@ const Connector = ({ id, status, centralSystemSend, settings, setSettings }) => 
     const result = sendCommand(command, metaData)
     centralSystemSend(result.ocppCommand, result.lastCommand)
   }
+
+  // Auto metering effect
+  useEffect(() => {
+    if (autoMetering && settings.inTransaction) {
+      intervalRef.current = setInterval(() => {
+        // Increase currentMeterValue by a random number between 150 and 1250 and send MeterValues
+        const increment = Math.floor(Math.random() * (1250 - 150 + 1)) + 150;
+        const newValue = Number(settings.currentMeterValue) + increment;
+        updateData('currentMeterValue', newValue);
+        sendRequest('MeterValues');
+      }, 10000);
+    } else {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    }
+    // Cleanup on unmount or when autoMetering/settings.inTransaction changes
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, [autoMetering, settings.inTransaction, settings.currentMeterValue])
+
+  // Stop auto metering if transaction ends
+  useEffect(() => {
+    if (!settings.inTransaction && autoMetering) {
+      setAutoMetering(false)
+    }
+
+    if(settings.inTransaction) {
+      setSelectedCar(carOptions[Math.floor(Math.random() * carOptions.length)])
+      console.log(`Transaction started on connector ${id} with car: ${selectedCar}`);
+    }
+  }, [settings.inTransaction])
 
   return (
     <Paper sx={{p: 2}}>
@@ -173,6 +222,33 @@ const Connector = ({ id, status, centralSystemSend, settings, setSettings }) => 
             onClick={() => updateData('currentMeterValue', settings.currentMeterValue + 10)}
           />
         </FormGroup>
+      </Grid>
+      <Grid item xs={6}>
+        <Button
+          fullWidth
+          variant={autoMetering ? 'outlined' : 'contained'}
+          color={autoMetering ? 'secondary' : 'primary'}
+          disabled={!settings.inTransaction}
+          onClick={() => setAutoMetering((prev) => !prev)}
+        >
+          {autoMetering ? 'Stop Auto Meter' : 'Start Auto Meter'}
+        </Button>
+      </Grid>
+      <Grid item xs={6}>
+        <FormControl fullWidth>
+          <InputLabel>Car</InputLabel>
+          <Select
+            value={selectedCar}
+            label="Car"
+            size="small"
+            onChange={e => setSelectedCar(e.target.value)}
+            disabled={settings.inTransaction}
+          >
+            {carOptions.map(car => (
+              <MenuItem key={car} value={car}>{car}</MenuItem>
+            ))}
+          </Select>
+        </FormControl>
       </Grid>
       <Grid item xs={12}>
       <Button disabled={!settings.inTransaction} fullWidth variant='contained' onClick={() => sendRequest('MeterValues')} >Send Meter Value</Button>
