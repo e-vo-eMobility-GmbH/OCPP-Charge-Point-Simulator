@@ -113,13 +113,14 @@ export class EnergyCalculator {
   static generateSessionSamples(
     carName,
     soc,
+    currentEnergy,
+    startMeterValue,
     intervalSeconds = 60
   ) {
     const car = this.carProfiles.find((c) => c.name === carName);
 
     if (!car) throw new Error("Car profile not found");
-
-    let energy = (soc / 100) * car.batteryCapacityWh;
+    let energy = currentEnergy;
     let timestamp = new Date();
 
     const power = car.chargingCurve(soc);
@@ -127,7 +128,10 @@ export class EnergyCalculator {
     const current = power / voltage;
     const energyAdded = (power * intervalSeconds) / 3600; // Wh
     energy += energyAdded;
-    var newSoc = Math.min(100, (energy / car.batteryCapacityWh) * 100);
+    var newSoc = Math.min(
+      100,
+      ((energyAdded) / car.batteryCapacityWh) * 100 + soc
+    );
     timestamp = new Date(timestamp.getTime() + intervalSeconds * 1000);
 
     return {

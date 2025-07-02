@@ -74,12 +74,17 @@ const Connector = ({ id, status, centralSystemSend, settings, setSettings }) => 
       case 'MeterValues':
         const sessionSample = EnergyCalculator.generateSessionSamples(
           selectedCar,
-          lastSessionSample.soc ?? Math.floor(Math.random() * (22 - 3 + 1)) + 3,
+          lastSessionSample?.soc ?? Math.floor(Math.random() * (22 - 3 + 1)) + 3,
+          connectors[id].currentMeterValue,
+          connectors[id].startMeterValue,
           30,
         );
+
         // Use the last sample for display
         const sample = Array.isArray(sessionSample) ? sessionSample[sessionSample.length - 1] : sessionSample;
         setLastSessionSample(sample);
+        updateData('currentMeterValue', sample.energy);
+       
         metaData.connectorId = connectors[id].connectorId
         metaData.transactionId = connectors[id].transactionId
         metaData.soc = sample.soc
@@ -100,10 +105,6 @@ const Connector = ({ id, status, centralSystemSend, settings, setSettings }) => 
   useEffect(() => {
     if (autoMetering && settings.inTransaction) {
       intervalRef.current = setInterval(() => {
-        // Increase currentMeterValue by a random number between 150 and 1250 and send MeterValues
-        const increment = Math.floor(Math.random() * (1250 - 150 + 1)) + 150;
-        const newValue = Number(settings.currentMeterValue) + increment;
-        updateData('currentMeterValue', newValue);
         sendRequest('MeterValues');
       }, 30000);
     } else {
