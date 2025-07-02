@@ -6,6 +6,7 @@ import { sendCommand } from '../../OCPP/OCPP-Commands';
 import { mainStatus } from '../../Config/charge-point-settings';
 import { styled } from '@mui/material/styles';
 import AddIcon from '@mui/icons-material/Add';
+import { EnergyCalculator } from '../../Util/EnergyCalculator';
 
 const animate = '../arrows.gif'
 
@@ -28,19 +29,14 @@ const StyledButton = styled(Button)({
   '& .MuiButton-startIcon': { margin: 0 }
 });
 
-const carOptions = [
-  'Cupra Born',
-  'MG ZSEV',
-  'Tesla Model Y Facelift 2025',
-  'Audi Q4 E-Tron',
-  'Porsche Taycan'
-];
+const carOptions = EnergyCalculator.getCarNames();
 
 const Connector = ({ id, status, centralSystemSend, settings, setSettings }) => {
   const [ meterError, setMeterError ] = useState(false)
   const [ localStatus, setLocalStatus ] = useState(connectorStatus.Available)
   const [ autoMetering, setAutoMetering ] = useState(false)
   const [ selectedCar, setSelectedCar ] = useState(carOptions[0]);
+  const [ lastSessionSample, setLastSessionSample ] = useState(null);
   const intervalRef = useRef(null)
 
   const updateData = (field, data) => {
@@ -76,11 +72,22 @@ const Connector = ({ id, status, centralSystemSend, settings, setSettings }) => 
         metaData.stopReason = connectors[id].stopReason
         break;
       case 'MeterValues':
+        const sessionSample = EnergyCalculator.generateSessionSamples(
+          selectedCar,
+          lastSessionSample.soc ?? Math.floor(Math.random() * (22 - 3 + 1)) + 3,
+          30,
+        );
+        // Use the last sample for display
+        const sample = Array.isArray(sessionSample) ? sessionSample[sessionSample.length - 1] : sessionSample;
+        setLastSessionSample(sample);
         metaData.connectorId = connectors[id].connectorId
         metaData.transactionId = connectors[id].transactionId
-        metaData.currentMeterValue = connectors[id].currentMeterValue
-        metaData.startMeterValue = connectors[id].startMeterValue // Pass startMeterValue for SoC calculation
-        metaData.selectedCar = selectedCar // Pass selected car to OCPP-Commands
+        metaData.soc = sample.soc
+        metaData.current = sample.current
+        metaData.power = sample.power
+        metaData.voltage = sample.voltage
+        metaData.currentMeterValue = sample.energy
+        metaData.timestamp = sample.timestamp
         break;
       default:
         break;
@@ -98,7 +105,7 @@ const Connector = ({ id, status, centralSystemSend, settings, setSettings }) => 
         const newValue = Number(settings.currentMeterValue) + increment;
         updateData('currentMeterValue', newValue);
         sendRequest('MeterValues');
-      }, 10000);
+      }, 30000);
     } else {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
@@ -118,10 +125,12 @@ const Connector = ({ id, status, centralSystemSend, settings, setSettings }) => 
   useEffect(() => {
     if (!settings.inTransaction && autoMetering) {
       setAutoMetering(false)
+      setLastSessionSample(null)
     }
 
     if(settings.inTransaction) {
       setSelectedCar(carOptions[Math.floor(Math.random() * carOptions.length)])
+      setAutoMetering(true)
       console.log(`Transaction started on connector ${id} with car: ${selectedCar}`);
     }
   }, [settings.inTransaction])
@@ -252,6 +261,21 @@ const Connector = ({ id, status, centralSystemSend, settings, setSettings }) => 
       </Grid>
       <Grid item xs={12}>
       <Button disabled={!settings.inTransaction} fullWidth variant='contained' onClick={() => sendRequest('MeterValues')} >Send Meter Value</Button>
+      </Grid>
+      <Grid item xs={12}>
+        {lastSessionSample && (
+          <Box sx={{ mt: 2, mb: 2, p: 2, background: '#f5f5f5', borderRadius: 2 }}>
+            <Typography variant="subtitle1" color="primary">Charging Data</Typography>
+            <Grid container spacing={1}>
+              <Grid item xs={6} sm={4}><b>State of Charge:</b> {lastSessionSample.soc}%</Grid>
+              <Grid item xs={6} sm={4}><b>Power:</b> {lastSessionSample.power} W</Grid>
+              <Grid item xs={6} sm={4}><b>Current:</b> {lastSessionSample.current} A</Grid>
+              <Grid item xs={6} sm={4}><b>Voltage:</b> {lastSessionSample.voltage} V</Grid>
+              <Grid item xs={6} sm={4}><b>Energy:</b> {lastSessionSample.energy} Wh</Grid>
+              <Grid item xs={6} sm={4}><b>Timestamp:</b> {lastSessionSample.timestamp.toLocaleString()}</Grid>
+            </Grid>
+          </Box>
+        )}
       </Grid>
     </Grid>
   </Paper>
