@@ -70,11 +70,12 @@ const Connector = ({ id, status, centralSystemSend, settings, setSettings }) => 
         metaData.currentMeterValue = connectors[id].currentMeterValue
         metaData.transactionId = connectors[id].transactionId
         metaData.stopReason = connectors[id].stopReason
-        break;
       case 'MeterValues':
+        const initialSoc = lastSessionSample?.initialSoc ?? Math.floor(Math.random() * (22 - 3 + 1)) + 3;
         const sessionSample = EnergyCalculator.generateSessionSamples(
           selectedCar,
-          lastSessionSample?.soc ?? Math.floor(Math.random() * (22 - 3 + 1)) + 3,
+          initialSoc,
+          lastSessionSample?.soc ?? initialSoc,
           connectors[id].currentMeterValue,
           connectors[id].startMeterValue,
           30,
@@ -87,6 +88,7 @@ const Connector = ({ id, status, centralSystemSend, settings, setSettings }) => 
        
         metaData.connectorId = connectors[id].connectorId
         metaData.transactionId = connectors[id].transactionId
+        metaData.initialSoc = sample.initialSoc
         metaData.soc = sample.soc
         metaData.current = sample.current
         metaData.power = sample.power
@@ -127,6 +129,11 @@ const Connector = ({ id, status, centralSystemSend, settings, setSettings }) => 
     if (!settings.inTransaction && autoMetering) {
       setAutoMetering(false)
       setLastSessionSample(null)
+      // Set connector status to Available after a random delay (4-23s)
+      setTimeout(() => {
+        setLocalStatus(connectorStatus.Available);
+        sendRequest('StatusNotification');
+      }, (Math.floor(Math.random() * 20) + 4) * 1000);
     }
 
     if(settings.inTransaction) {

@@ -63,6 +63,11 @@ export const sendCommand = (command, metaData) => {
       };
       break;
     case "MeterValues":
+      // Calculate SoC based on meter values and battery capacity if not provided
+      let soc = metaData.soc;
+      if ((typeof soc === 'undefined' || soc === null) && metaData.currentMeterValue && metaData.startMeterValue && metaData.batteryCapacityWh) {
+        soc = Math.min(100, Math.max(0, Math.round(((metaData.currentMeterValue - metaData.startMeterValue) / metaData.batteryCapacityWh) * 100)));
+      }
       message = {
         connectorId: metaData.connectorId,
         transactionId: metaData.transactionId,
@@ -93,7 +98,7 @@ export const sendCommand = (command, metaData) => {
               {
                 measurand: "SoC",
                 unit: "Percent",
-                value: metaData.soc.toString(),
+                value: soc ? soc.toString() : '0',
               },
             ],
           },

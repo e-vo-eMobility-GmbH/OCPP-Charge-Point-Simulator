@@ -112,35 +112,53 @@ export class EnergyCalculator {
 
   static generateSessionSamples(
     carName,
+    initialSoc,
     soc,
     currentEnergy,
     startMeterValue,
     intervalSeconds = 60
   ) {
     const car = this.carProfiles.find((c) => c.name === carName);
-
     if (!car) throw new Error("Car profile not found");
     let energy = currentEnergy;
-    let timestamp = new Date();
 
-    const power = car.chargingCurve(soc);
-    const voltage = car.voltage;
-    const current = power / voltage;
+    // Add random fluctuation to power (simulate real-world charging)
+    let basePower = car.chargingCurve(soc);
+    const fluctuation = (Math.random() - 0.5) * 0.08 * basePower; // +/-4% fluctuation
+    const power = Math.max(0, basePower - Math.abs(fluctuation));
+
+    // Simulate voltage drop under load (DC fast charging: voltage drops as current increases)
+    let voltage = car.voltage;
+    if (power > 0) {
+      // Drop up to 3% at max power
+      const drop = (1 - Math.min(power / car.maxPower, 1) * 0.03);
+      voltage = Math.round(car.voltage * drop);
+    }
+
+    // Add random fluctuation to current (simulate BMS/charger behavior)
+    let current = power / voltage;
+    current += (Math.random() - 0.5) * 0.04 * current; // +/-2% fluctuation
+
     const energyAdded = (power * intervalSeconds) / 3600; // Wh
     energy += energyAdded;
+    // Fix: SoC should be based on total energy relative to battery and start offset
+    // startMeterValue is the energy at session start (Wh)
+    // soc = (energy - startMeterValue) / batteryCapacityWh * 100 + initial soc offset
+    let socOffset = initialSoc; // soc argument is the initial SoC offset
+    let sessionEnergy = energy - startMeterValue;
     var newSoc = Math.min(
       100,
-      ((energyAdded) / car.batteryCapacityWh) * 100 + soc
+      socOffset + (sessionEnergy / car.batteryCapacityWh) * 100
     );
-    timestamp = new Date(timestamp.getTime() + intervalSeconds * 1000);
 
     return {
+      initialSoc: initialSoc,
       soc: Math.round(newSoc),
       power: Math.round(power),
       current: Math.round(current),
-      voltage,
+      voltage: Math.round(voltage),
       energy: Math.round(energy),
-      timestamp: new Date(timestamp),
+      timestamp: new Date(),
     };
   }
 
