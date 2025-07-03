@@ -131,7 +131,7 @@ export class EnergyCalculator {
     let voltage = car.voltage;
     if (power > 0) {
       // Drop up to 3% at max power
-      const drop = (1 - Math.min(power / car.maxPower, 1) * 0.03);
+      const drop = 1 - Math.min(power / car.maxPower, 1) * 0.03;
       voltage = Math.round(car.voltage * drop);
     }
 
@@ -144,11 +144,10 @@ export class EnergyCalculator {
     // Fix: SoC should be based on total energy relative to battery and start offset
     // startMeterValue is the energy at session start (Wh)
     // soc = (energy - startMeterValue) / batteryCapacityWh * 100 + initial soc offset
-    let socOffset = initialSoc; // soc argument is the initial SoC offset
     let sessionEnergy = energy - startMeterValue;
     var newSoc = Math.min(
       100,
-      socOffset + (sessionEnergy / car.batteryCapacityWh) * 100
+      initialSoc + (sessionEnergy / car.batteryCapacityWh) * 100
     );
 
     return {

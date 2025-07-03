@@ -78,7 +78,7 @@ export const sendCommand = (command, metaData) => {
               {
                 measurand: "Voltage",
                 unit: "V",
-                value: metaData.voltage.toString(),
+                value: metaData.voltage?.toString(),
               },
               {
                 measurand: "Current.Import",

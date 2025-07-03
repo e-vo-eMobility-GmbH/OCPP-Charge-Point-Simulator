@@ -81,6 +81,8 @@ const Connector = ({ id, status, centralSystemSend, settings, setSettings }) => 
           30,
         );
 
+        console.log(`Generated session sample for connector ${id}:`, sessionSample);
+
         // Use the last sample for display
         const sample = Array.isArray(sessionSample) ? sessionSample[sessionSample.length - 1] : sessionSample;
         setLastSessionSample(sample);
