@@ -18,6 +18,10 @@ let meterValueInterval = {
 
 let uploadInterval
 let uploadSeconds
+let reconnectInterval
+let reconnectAttempts = 0
+const MAX_RECONNECT_ATTEMPTS = 15
+const RECONNECT_INTERVAL = 15000 // 15 seconds
 
 const getTime = () => moment().format('HH:mm:ss')
 const logArray = []
@@ -31,6 +35,7 @@ const Main = () => {
   const [ status, setStatus ] = useState(socketInfo.lastStatus || pointStatus.disconnected)
   const [ conOne, setConOne ] = useState(connectors[1])
   const [ conTwo, setConTwo ] = useState(connectors[2])
+  const [ isReconnecting, setIsReconnecting ] = useState(false)
 
   const [ uploading, setUploading ] = useState(false)
   const [ seconds, setSeconds ] = useState(settingsState.simulation.diagnosticUploadTime)
@@ -79,6 +84,58 @@ const Main = () => {
     uploadSeconds = uploadSeconds - 1
     setSeconds(uploadSeconds)
   }
+
+  const startConnection = () => {
+    const { protocol, address, port, chargePointId, OCPPversion } = settingsState.mainSettings
+    socketInfo.webSocket = new WebSocket(`${protocol}://${address}:${port}/${chargePointId}`, [ OCPPversion ])
+    setWs(socketInfo.webSocket)
+    setStatus(pointStatus.connecting)
+    updateLog({ time: getTime(), type: logTypes.socket, message: 'Attempting connection...' })
+  }
+
+  const attemptReconnect = () => {
+    if (!settingsState.mainSettings.autoReconnect || reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+        updateLog({ time: getTime(), type: logTypes.error, message: `Reconnection failed after ${MAX_RECONNECT_ATTEMPTS} attempts` })
+      }
+      setIsReconnecting(false)
+      clearInterval(reconnectInterval)
+      reconnectAttempts = 0
+      return
+    }
+
+    reconnectAttempts++
+    updateLog({ time: getTime(), type: logTypes.socket, message: `Reconnection attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}` })
+    startConnection()
+  }
+
+  // Handle auto reconnect with useEffect
+  useEffect(() => {
+    if (!ws && settingsState.mainSettings.autoReconnect && !isReconnecting) {
+      setIsReconnecting(true)
+      reconnectAttempts = 0
+      clearInterval(reconnectInterval)
+      reconnectInterval = setInterval(attemptReconnect, RECONNECT_INTERVAL)
+      return () => clearInterval(reconnectInterval)
+    }
+  }, [ws, settingsState.mainSettings.autoReconnect])
+
+  // Listen for connect event from ChargePoint component
+  useEffect(() => {
+    const handleConnectEvent = () => {
+      // Clear any existing reconnect intervals when manually connecting
+      clearInterval(reconnectInterval)
+      reconnectAttempts = 0
+      setIsReconnecting(false)
+      startConnection()
+    }
+    
+    window.addEventListener('ocpp-connect', handleConnectEvent)
+    
+    return () => {
+      window.removeEventListener('ocpp-connect', handleConnectEvent)
+    }
+  }, [settingsState.mainSettings]) // Re-add listener if settings change
 
 
   const centralSystemSend = (command, localCommand) => {
@@ -282,6 +339,11 @@ const Main = () => {
       socketInfo.lastStatus = pointStatus.connected
       updateLog({ time: getTime(), type: logTypes.socket, message: 'Charge point connected' })
 
+      // Reset reconnect attempts when connection is successful
+      reconnectAttempts = 0
+      setIsReconnecting(false)
+      clearInterval(reconnectInterval)
+
       const initialBoot = sendCommand('BootNotification', { bootNotification: settingsState.bootNotification })
       centralSystemSend(initialBoot.ocppCommand, initialBoot.lastCommand)
     }
@@ -302,6 +364,15 @@ const Main = () => {
       setUploading(false)      
       clearInterval(uploadInterval)
       setWs('')
+
+      // Start auto reconnect if enabled
+      if (settingsState.mainSettings.autoReconnect && !isReconnecting) {
+        setIsReconnecting(true)
+        reconnectAttempts = 0
+        clearInterval(reconnectInterval)
+        updateLog({ time: getTime(), type: logTypes.socket, message: `Auto reconnect enabled. Will attempt reconnection in ${RECONNECT_INTERVAL/1000} seconds.` })
+        reconnectInterval = setInterval(attemptReconnect, RECONNECT_INTERVAL)
+      }
     }
 
     ws.onmessage = (msg) => {
@@ -354,6 +425,11 @@ const Main = () => {
             <Box display='flex' justifyContent='space-between' alignContent='center'>
               <Typography variant='h6' color='primary'>LOG</Typography>
               <Box display='flex' justifyContent='flex-end' alignContent='center'>
+                {isReconnecting && (
+                  <Typography variant='body2' color='info.main' sx={{ mr: 2 }}>
+                    Auto reconnect: {reconnectAttempts}/{MAX_RECONNECT_ATTEMPTS}
+                  </Typography>
+                )}
                 <Speed sx={{ml: 1, cursor: 'pointer'}} color='primary' onClick={(event) => showHelpText(event, 'MeterValueSampleInterval')} />
                 <MonitorHeartOutlined sx={{ml: 1, cursor: 'pointer'}} color='primary' onClick={(event) => showHelpText(event, 'HeartbeatInterval')} />
                 <Tooltip title='Clear log' placement='top' arrow >

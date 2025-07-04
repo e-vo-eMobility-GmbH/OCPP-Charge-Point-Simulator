@@ -10,14 +10,6 @@ import { socketInfo } from '../../common/constants';
 const ChargePoint = ({ ws, setWs, status, setStatus, centralSystemSend }) => {
   const { settingsState } = useContext(SettingsContext)
 
-  const startConnection = () => {
-    const { protocol, address, port, chargePointId, OCPPversion } = settingsState.mainSettings
-    // setWs(new WebSocket(`${protocol}://${address}:${port}/${chargePointId}`, [ OCPPversion ]))
-    socketInfo.webSocket = new WebSocket(`${protocol}://${address}:${port}/${chargePointId}`, [ OCPPversion ])
-    setWs(socketInfo.webSocket)
-    setStatus(pointStatus.connecting)
-  }
-
   const sendRequest = (command) => {
     const metaData = {}
     switch (command) {
@@ -38,19 +30,24 @@ const ChargePoint = ({ ws, setWs, status, setStatus, centralSystemSend }) => {
     <Paper sx={{p: 2}}>
       <Box display='flex' alignItems='center' justifyContent='space-between'>
         <Typography variant='h6' color='primary'>CHARGE POINT</Typography>
-        <Chip
-          size='small'
-          icon={<status.icon size={18} style={{ paddingLeft: 6, paddingRight: 3 }} />}
-          label={status.text.toUpperCase()}
-          color={status.color}
-        />
+        <Box display='flex' alignItems='flex-end' flexDirection='column' justifyContent='space-between'>
+          <Chip
+            size='small'
+            icon={<status.icon size={18} style={{ paddingLeft: 6, paddingRight: 3 }} />}
+            label={status.text.toUpperCase()}
+            color={status.color}
+          />
+          {settingsState.mainSettings.autoReconnect && !connectedStatuses.includes(status.status) && status.status !== 'connecting' && (
+            <Chip size='small' label="AUTO RECONNECT" color="info" sx={{ mt: 1 }} />
+          )}
+        </Box>
       </Box>
       <Divider sx={{ mt: 0.5, mb: 1.5 }} />
       <Stack spacing={2}>
         {
           connectedStatuses.includes(status.status)
           ? <Button variant='contained' color='warning' onClick={() => ws.close()} fullWidth>Disconnect</Button>
-          : <Button variant='contained' fullWidth onClick={startConnection}>Connect</Button>
+          : <Button variant='contained' fullWidth onClick={() => window.dispatchEvent(new CustomEvent('ocpp-connect'))}>Connect</Button>
         }
         <Button disabled={!connectedStatuses.includes(status.status)} variant='contained' fullWidth onClick={() => sendRequest('Authorize')}>Authorize</Button>
         <Button disabled={!connectedStatuses.includes(status.status)} variant='contained' fullWidth onClick={() => sendRequest('BootNotification')}>Boot notification</Button>

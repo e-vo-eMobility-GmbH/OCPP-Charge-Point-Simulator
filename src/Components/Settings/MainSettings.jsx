@@ -1,5 +1,5 @@
 import React, { useContext } from 'react';
-import { Grid, Box, Button, TextField, Select, InputLabel, MenuItem, FormControl } from '@mui/material'
+import { Grid, Box, Button, TextField, Select, InputLabel, MenuItem, FormControl, FormControlLabel, Switch } from '@mui/material'
 import SaveIcon from '@mui/icons-material/Save';
 import SettingsContext from '../../Context/SettingsContext';
 import { saveSettings } from '../../common/help-functions';
@@ -103,6 +103,20 @@ const MainSettings = () => {
               <MenuItem value={2}>Two Connectors</MenuItem>
             </Select>
           </FormControl>
+        </Grid>
+        <Grid item xs={9.5}></Grid>
+        <Grid item xs={2.5}>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={settingsState.mainSettings.autoReconnect}
+                onChange={(e) => changeValue('autoReconnect', e.target.checked)}
+                name="autoReconnect"
+                color="primary"
+              />
+            }
+            label="Auto Reconnect"
+          />
         </Grid>
         <Grid item xs={9.5}></Grid>
         <Grid item xs={2}>

@@ -10,6 +10,7 @@ const defaultSettings = {
     OCPPversion: "ocpp1.6",
     RFIDTag: nanoid(20),
     numberOfConnectors: 2,
+    autoReconnect: true, // Enable auto reconnect by default
   },
 
   bootNotification: {
