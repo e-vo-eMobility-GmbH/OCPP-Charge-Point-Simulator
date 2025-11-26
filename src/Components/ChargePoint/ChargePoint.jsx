@@ -10,7 +10,7 @@ import { socketInfo } from '../../common/constants';
 const ChargePoint = ({ ws, setWs, status, setStatus, centralSystemSend }) => {
   const { settingsState } = useContext(SettingsContext)
 
-  const sendRequest = (command) => {
+  const sendRequest = async (command) => {
     const metaData = {}
     switch (command) {
       case 'Authorize':
@@ -22,7 +22,8 @@ const ChargePoint = ({ ws, setWs, status, setStatus, centralSystemSend }) => {
       default:
         break;
     }
-    const result = sendCommand(command, metaData)
+    
+    const result = await sendCommand(command, metaData)
     centralSystemSend(result.ocppCommand, result.lastCommand)
   }
 

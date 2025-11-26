@@ -73,9 +73,9 @@ const Main = () => {
   }
 
 
-  const uploadSimulate = () => {
+  const uploadSimulate = async () => {
     if (uploadSeconds === 0) {
-      const result = sendCommand('DiagnosticsStatusNotification', { diagnosticStatus: settingsState.simulation.diagnosticStatus })
+      const result = await sendCommand('DiagnosticsStatusNotification', { diagnosticStatus: settingsState.simulation.diagnosticStatus })
       centralSystemSend(result.ocppCommand, result.lastCommand)
       clearInterval(uploadInterval)
       setUploading(false)
@@ -145,7 +145,7 @@ const Main = () => {
   }
 
 
-  const incomingMessage = (id, message) => {
+  const incomingMessage = async (id, message) => {
     const getCommand = (commands.filter(x => x.id === id))[0]
 
     if (!getCommand) {
@@ -158,12 +158,12 @@ const Main = () => {
     
     if (command === 'BootNotification' && !initialBootNotification && message.status === 'Accepted') {
       // Send first heartbeat
-      const result = sendCommand('Heartbeat', {})
+      const result = await sendCommand('Heartbeat', {})
       centralSystemSend(result.ocppCommand, result.lastCommand)
 
       // Send connector(s) status(es)
       for (let i = 1; i <= settingsState.mainSettings.numberOfConnectors; i++) {
-        const currentConnector = sendCommand('StatusNotification', { connectorId: i, status: connectors[i].status })
+        const currentConnector = await sendCommand('StatusNotification', { connectorId: i, status: connectors[i].status })
         centralSystemSend(currentConnector.ocppCommand, currentConnector.lastCommand)
       }
 
@@ -173,8 +173,8 @@ const Main = () => {
       // Set heartbeat interval
       const index = settingsState.stationSettings.findIndex(x => x.key === 'HeartbeatInterval')
       settingsState.stationSettings[index].value = message.interval
-      heartbeatInterval = setInterval(() => {
-        const result = sendCommand('Heartbeat', {})
+      heartbeatInterval = setInterval(async () => {
+        const result = await sendCommand('Heartbeat', {})
         centralSystemSend(result.ocppCommand, result.lastCommand)
       }, settingsState.stationSettings[index].value * 1000)
     }
@@ -192,7 +192,7 @@ const Main = () => {
 
       const index = settingsState.stationSettings.findIndex(x => x.key === 'MeterValueSampleInterval')
 
-      meterValueInterval[connector] = setInterval(() => {
+      meterValueInterval[connector] = setInterval(async () => {
         connectors[connector].currentMeterValue = connectors[connector].currentMeterValue + 50
         updateConnector[connector]({ ...connectors[connector] })
 
@@ -200,13 +200,15 @@ const Main = () => {
           connectorId: connectors[connector].connectorId,
           transactionId: connectors[connector].transactionId,
           currentMeterValue: connectors[connector].currentMeterValue,
+          ocmfSignedMeterValues: settingsState.mainSettings.ocmfSignedMeterValues,
+          ocmfPrivateKey: settingsState.mainSettings.ocmfPrivateKey,
         }
 
-        const result = sendCommand('MeterValues', metaData)
+        const result = await sendCommand('MeterValues', metaData)
         centralSystemSend(result.ocppCommand, result.lastCommand)
       }, settingsState.stationSettings[index].value * 1000)
 
-      const statusData = sendCommand('StatusNotification', { connectorId: connector, status: connectors[connector].status })
+      const statusData = await sendCommand('StatusNotification', { connectorId: connector, status: connectors[connector].status })
       centralSystemSend(statusData.ocppCommand, statusData.lastCommand)
     }
 
@@ -217,13 +219,13 @@ const Main = () => {
       connectors[connector].status = connectorStatus.Finishing
       updateConnector[connector]({ ...connectors[connector] })
       clearInterval(meterValueInterval[connector])
-      const statusData = sendCommand('StatusNotification', { connectorId: connector, status: connectors[connector].status })
+      const statusData = await sendCommand('StatusNotification', { connectorId: connector, status: connectors[connector].status })
       centralSystemSend(statusData.ocppCommand, statusData.lastCommand)
     }
   }
 
 
-  const incomingRequest = (id, request, payload) => {
+  const incomingRequest = async (id, request, payload) => {
     const acceptRespond = JSON.stringify([ 3, id, { status: 'Accepted' }])
     const rejectRespond = JSON.stringify([ 3, id, { status: 'Rejected' }])
     updateLog({ time: getTime(), type: logTypes.request, command: request, message: JSON.stringify(payload) })
@@ -245,7 +247,11 @@ const Main = () => {
         metaData.connectorId = connId
         metaData.idTag = connectors[connId].idTag
         metaData.startMeterValue = connectors[connId].startMeterValue
-        const newTransaction =  sendCommand('StartTransaction', metaData)
+        connectors[connId].startTimestamp = new Date()
+        metaData.startTimestamp = connectors[connId].startTimestamp
+        metaData.ocmfSignedMeterValues = settingsState.mainSettings.ocmfSignedMeterValues
+        metaData.ocmfPrivateKey = settingsState.mainSettings.ocmfPrivateKey
+        const newTransaction = await sendCommand('StartTransaction', metaData)
         centralSystemSend(newTransaction.ocppCommand, newTransaction.lastCommand)
         break;
       case 'RemoteStopTransaction':
@@ -264,7 +270,15 @@ const Main = () => {
         metaData.currentMeterValue = connectors[connId].currentMeterValue
         metaData.transactionId = connectors[connId].transactionId
         metaData.stopReason = connectors[connId].stopReason
-        const endTransaction =  sendCommand('StopTransaction', metaData)
+        metaData.startMeterValue = connectors[connId].startMeterValue && 0
+        metaData.startTimestamp = connectors[connId].startTimestamp
+        metaData.stopTimestamp = new Date()
+        metaData.ocmfSignedMeterValues = settingsState.mainSettings.ocmfSignedMeterValues
+        metaData.ocmfPrivateKey = settingsState.mainSettings.ocmfPrivateKey
+        // Set this flag to send one or two signed meter values
+        metaData.withSignedStartMeterValue = true
+        const endTransaction = await sendCommand('StopTransaction', metaData)
+
         centralSystemSend(endTransaction.ocppCommand, endTransaction.lastCommand)
         break;
       case 'TriggerMessage':
@@ -282,7 +296,7 @@ const Main = () => {
         metaData.bootNotification = settingsState.bootNotification
         metaData.diagnosticStatus = uploading ? 'Uploading' : 'Idle'
         metaData.firmWareStatus = settingsState.simulation.firmWareStatus
-        const triggerMessage =  sendCommand(requestedMessage, metaData)
+        const triggerMessage = await  sendCommand(requestedMessage, metaData)
         centralSystemSend(triggerMessage.ocppCommand, triggerMessage.lastCommand)
         break;
       case 'UnlockConnector':
@@ -322,8 +336,8 @@ const Main = () => {
           setUploading(true)
           uploadSeconds = settingsState.simulation.diagnosticUploadTime
           setSeconds(uploadSeconds)
-          uploadInterval = setInterval(() => uploadSimulate(), 1000)
-          const result = sendCommand('DiagnosticsStatusNotification', { diagnosticStatus: 'Uploading' })
+          uploadInterval = setInterval(async () => await uploadSimulate(), 1000)
+          const result = await  sendCommand('DiagnosticsStatusNotification', { diagnosticStatus: 'Uploading' })
           centralSystemSend(result.ocppCommand, result.lastCommand)
         }
         break;
@@ -334,7 +348,7 @@ const Main = () => {
 
 
   if (ws) {
-    ws.onopen = () => {
+    ws.onopen = async () => {
       setStatus(pointStatus.connected)
       socketInfo.lastStatus = pointStatus.connected
       updateLog({ time: getTime(), type: logTypes.socket, message: 'Charge point connected' })
@@ -344,7 +358,7 @@ const Main = () => {
       setIsReconnecting(false)
       clearInterval(reconnectInterval)
 
-      const initialBoot = sendCommand('BootNotification', { bootNotification: settingsState.bootNotification })
+      const initialBoot = await sendCommand('BootNotification', { bootNotification: settingsState.bootNotification })
       centralSystemSend(initialBoot.ocppCommand, initialBoot.lastCommand)
     }
 
@@ -375,14 +389,14 @@ const Main = () => {
       }
     }
 
-    ws.onmessage = (msg) => {
+    ws.onmessage = async (msg) => {
       const [ type, id, message, payload ] = JSON.parse(msg.data)
       switch (type) {
         case 2:
-          incomingRequest(id, message, payload)
+          await incomingRequest(id, message, payload)
           break;
         case 3:
-          incomingMessage(id, message)
+          await incomingMessage(id, message)
           break;
         default:
           break;
@@ -410,13 +424,13 @@ const Main = () => {
         </Grid>
         <Grid item xs={4.4}>
         { connectedStatuses.includes(status.status)
-          ? <Connector id={1} status={status} centralSystemSend={centralSystemSend} settings={conOne} setSettings={setConOne} />
+          ? <Connector id={1} status={status} centralSystemSend={centralSystemSend} settings={conOne} setSettings={setConOne} ocmfSignedMeterValues={settingsState.mainSettings.ocmfSignedMeterValues} ocmfPrivateKey={settingsState.mainSettings.ocmfPrivateKey} />
           : null
         }
         </Grid>
         <Grid item xs={4.4}>
           { settingsState.mainSettings.numberOfConnectors === 2 && connectedStatuses.includes(status.status)
-            ? <Connector id={2} status={status} centralSystemSend={centralSystemSend} settings={conTwo} setSettings={setConTwo} />
+            ? <Connector id={2} status={status} centralSystemSend={centralSystemSend} settings={conTwo} setSettings={setConTwo}  ocmfSignedMeterValues={settingsState.mainSettings.ocmfSignedMeterValues} ocmfPrivateKey={settingsState.mainSettings.ocmfPrivateKey} />
             : null
           }
         </Grid>

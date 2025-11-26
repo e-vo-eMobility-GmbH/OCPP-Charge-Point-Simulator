@@ -11,6 +11,8 @@ const defaultSettings = {
     RFIDTag: nanoid(20),
     numberOfConnectors: 2,
     autoReconnect: true, // Enable auto reconnect by default
+     ocmfSignedMeterValues: false, // Enable/disable signed meter values
+     ocmfPrivateKey: '', // Private key for OCMF signing
   },
 
   bootNotification: {

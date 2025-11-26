@@ -1,4 +1,5 @@
 import { getId, OCPPDate } from "../common/help-functions";
+import { createOcmfMessage } from "../common/ocmf-generator";
 
 const metaDataType = {
   connectorId: 0,
@@ -18,7 +19,7 @@ const metaDataType = {
  * @param { string } command
  * @param { metaDataType } metaData
  */
-export const sendCommand = (command, metaData) => {
+export const sendCommand = async (command, metaData) => {
   const id = getId();
   let message;
 
@@ -48,25 +49,92 @@ export const sendCommand = (command, metaData) => {
         connectorId: metaData.connectorId,
         idTag: metaData.idTag,
         meterStart: metaData.startMeterValue,
-        timestamp: OCPPDate(new Date()),
+        timestamp: OCPPDate(metaData.startTimestamp),
         // reservationId: ''
       };
       break;
     case "StopTransaction":
+      var transactionData = {};
+      const date = new Date();
+
+      if (metaData.ocmfSignedMeterValues) {
+        const ocmfMsg = await createOcmfMessage(
+          metaData.ocmfPrivateKey,
+          metaData.startMeterValue,
+          metaData.currentMeterValue,
+          metaData.startTimestamp,
+          metaData.stopTimestamp
+        );
+
+        transactionData = {
+          timestamp: OCPPDate(date),
+          sampledValue: [
+            {
+              value: ocmfMsg,
+              context: "Transaction.End",
+              format: "SignedData",
+              measurand: "Energy.Active.Import.Register",
+              location: "Outlet",
+              unit: "Wh",
+            },
+          ],
+        };
+
+        if (metaData.withSignedStartMeterValue) {
+          const startOcmfMsg = await createOcmfMessage(
+            metaData.ocmfPrivateKey,
+            metaData.startMeterValue,
+            undefined,
+            metaData.startTimestamp,
+            undefined
+          );
+          transactionData.sampledValue = [
+            {
+              value: startOcmfMsg,
+              context: "Transaction.Begin",
+              format: "SignedData",
+              measurand: "Energy.Active.Import.Register",
+              location: "Outlet",
+              unit: "Wh",
+            },
+            ...transactionData.sampledValue,
+          ];
+        }
+      }
       message = {
         // idTag: '',
         meterStop: metaData.currentMeterValue,
-        timestamp: OCPPDate(new Date()),
+        timestamp: metaData.stopTimestamp,
         transactionId: metaData.transactionId,
         reason: metaData.stopReason,
-        // transactionData: ''
+        transactionData: [
+          {
+            ...transactionData,
+          },
+        ],
       };
+
       break;
     case "MeterValues":
       // Calculate SoC based on meter values and battery capacity if not provided
       let soc = metaData.soc;
-      if ((typeof soc === 'undefined' || soc === null) && metaData.currentMeterValue && metaData.startMeterValue && metaData.batteryCapacityWh) {
-        soc = Math.min(100, Math.max(0, Math.round(((metaData.currentMeterValue - metaData.startMeterValue) / metaData.batteryCapacityWh) * 100)));
+      if (
+        (typeof soc === "undefined" || soc === null) &&
+        metaData.currentMeterValue &&
+        metaData.startMeterValue &&
+        metaData.batteryCapacityWh
+      ) {
+        soc = Math.min(
+          100,
+          Math.max(
+            0,
+            Math.round(
+              ((metaData.currentMeterValue - metaData.startMeterValue) /
+                metaData.batteryCapacityWh) *
+                100
+            )
+          )
+        );
       }
       message = {
         connectorId: metaData.connectorId,
@@ -98,7 +166,7 @@ export const sendCommand = (command, metaData) => {
               {
                 measurand: "SoC",
                 unit: "Percent",
-                value: soc ? soc.toString() : '0',
+                value: soc ? soc.toString() : "0",
               },
             ],
           },

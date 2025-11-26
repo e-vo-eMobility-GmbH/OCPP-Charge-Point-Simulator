@@ -38,7 +38,7 @@ const MainSettings = () => {
             value={settingsState.mainSettings.address}
             onChange={(e) => changeValue(e.target.name, e.target.value)}
           />
-        </Grid>
+        </Grid>        
         <Grid item xs={2}>
         <TextField
             fullWidth
@@ -59,6 +59,31 @@ const MainSettings = () => {
             name='chargePointId'
             value={settingsState.mainSettings.chargePointId}
             onChange={(e) => changeValue(e.target.name, e.target.value)}
+          />
+        </Grid>
+        <Grid item xs={4}>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={settingsState.mainSettings.ocmfSignedMeterValues}
+                onChange={(e) => changeValue('ocmfSignedMeterValues', e.target.checked)}
+                name="ocmfSignedMeterValues"
+                color="primary"
+              />
+            }
+            label="Enable OCMF Signed Meter Values"
+          />
+        </Grid>
+        <Grid item xs={8}>
+          <TextField
+            fullWidth
+            label="OCMF Private Key"
+            size="small"
+            variant="outlined"
+            name="ocmfPrivateKey"
+            value={settingsState.mainSettings.ocmfPrivateKey}
+            onChange={(e) => changeValue(e.target.name, e.target.value)}
+            disabled={!settingsState.mainSettings.ocmfSignedMeterValues}
           />
         </Grid>
         <Grid item xs={2.5}>
