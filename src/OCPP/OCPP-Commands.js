@@ -104,7 +104,7 @@ export const sendCommand = async (command, metaData) => {
       message = {
         // idTag: '',
         meterStop: metaData.currentMeterValue,
-        timestamp: metaData.stopTimestamp,
+        timestamp: OCPPDate(metaData.stopTimestamp),
         transactionId: metaData.transactionId,
         reason: metaData.stopReason,
         transactionData: [
