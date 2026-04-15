@@ -107,11 +107,11 @@ export const sendCommand = async (command, metaData) => {
         timestamp: OCPPDate(metaData.stopTimestamp),
         transactionId: metaData.transactionId,
         reason: metaData.stopReason,
-        transactionData: [
+        transactionData: Object.keys(transactionData).length > 0 ? [
           {
             ...transactionData,
           },
-        ],
+        ] : [],
       };
 
       break;
