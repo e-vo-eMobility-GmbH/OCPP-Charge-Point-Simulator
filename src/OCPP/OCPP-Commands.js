@@ -151,17 +151,17 @@ export const sendCommand = async (command, metaData) => {
               {
                 measurand: "Current.Import",
                 unit: "A",
-                value: metaData.current.toString(),
+                value: metaData.current?.toString() ?? "0",
               },
               {
                 measurand: "Energy.Active.Import.Register",
                 unit: "Wh",
-                value: metaData.currentMeterValue.toString(),
+                value: (metaData.currentMeterValue ?? 0).toString(),
               },
               {
                 measurand: "Power.Active.Import",
                 unit: "W",
-                value: Math.round(metaData.power).toString(),
+                value: Math.round(metaData.power ?? 0).toString(),
               },
               {
                 measurand: "SoC",
