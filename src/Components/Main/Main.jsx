@@ -9,29 +9,17 @@ import { MonitorHeartOutlined, Speed, Clear } from "@mui/icons-material";
 import { logTypes, commands, connectors, connectorStatus, socketInfo } from "../../common/constants";
 import { sendCommand } from "../../OCPP/OCPP-Commands";
 
-
-let heartbeatInterval
-let meterValueInterval = {
-  1: null,
-  2: null,
-}
-
-let uploadInterval
-let uploadSeconds
-let reconnectInterval
-let reconnectAttempts = 0
 const MAX_RECONNECT_ATTEMPTS = 15
 const RECONNECT_INTERVAL = 15000 // 15 seconds
 
 const getTime = () => moment().format('HH:mm:ss')
-const logArray = []
 
 
 const Main = () => {
   const { settingsState, setSettingsState } = useContext(SettingsContext)
   
   const [ ws, setWs ] = useState(socketInfo.webSocket || '')
-  const [ logs, setLogs ] = useState(logArray)
+  const [ logs, setLogs ] = useState([])
   const [ status, setStatus ] = useState(socketInfo.lastStatus || pointStatus.disconnected)
   const [ conOne, setConOne ] = useState(connectors[1])
   const [ conTwo, setConTwo ] = useState(connectors[2])
@@ -43,6 +31,18 @@ const Main = () => {
   const [ helpAnchorEl, setHelpAnchorEl ] = useState(null)
   const [ helpText, setHelpText ] = useState('')
 
+  const heartbeatIntervalRef = useRef(null)
+  const meterValueIntervalRef = useRef({ 1: null, 2: null })
+  const uploadIntervalRef = useRef(null)
+  const uploadSecondsRef = useRef(settingsState.simulation.diagnosticUploadTime)
+  const reconnectIntervalRef = useRef(null)
+  const reconnectAttemptsRef = useRef(0)
+  const logArrayRef = useRef([])
+  const settingsStateRef = useRef(settingsState)
+  const isReconnectingRef = useRef(false)
+  settingsStateRef.current = settingsState
+  isReconnectingRef.current = isReconnecting
+
   const updateConnector = {
     1: setConOne,
     2: setConTwo,
@@ -52,7 +52,7 @@ const Main = () => {
 
   const logsEndRef = useRef(null)
   const scrollToBottom = () => logsEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  useEffect(() => scrollToBottom(), [logs])
+  useEffect(() => { scrollToBottom() }, [logs])
 
   const showHelpText = (event, type) => {
     const getData = (settingsState.stationSettings.filter(x => x.key === type))[0]
@@ -62,31 +62,31 @@ const Main = () => {
 
 
   const updateLog = (record) => {
-    logArray.push(record)
-    setLogs([ ...logArray])
+    logArrayRef.current.push(record)
+    setLogs([ ...logArrayRef.current])
   }
 
 
   const clearLog = () => {
-    logArray.length = 0
+    logArrayRef.current.length = 0
     setLogs([])
   }
 
 
   const uploadSimulate = async () => {
-    if (uploadSeconds === 0) {
-      const result = await sendCommand('DiagnosticsStatusNotification', { diagnosticStatus: settingsState.simulation.diagnosticStatus })
+    if (uploadSecondsRef.current === 0) {
+      const result = await sendCommand('DiagnosticsStatusNotification', { diagnosticStatus: settingsStateRef.current.simulation.diagnosticStatus })
       centralSystemSend(result.ocppCommand, result.lastCommand)
-      clearInterval(uploadInterval)
+      clearInterval(uploadIntervalRef.current)
       setUploading(false)
       return
     }
-    uploadSeconds = uploadSeconds - 1
-    setSeconds(uploadSeconds)
+    uploadSecondsRef.current = uploadSecondsRef.current - 1
+    setSeconds(uploadSecondsRef.current)
   }
 
   const startConnection = () => {
-    const { protocol, address, port, chargePointId, OCPPversion } = settingsState.mainSettings
+    const { protocol, address, port, chargePointId, OCPPversion } = settingsStateRef.current.mainSettings
     socketInfo.webSocket = new WebSocket(`${protocol}://${address}:${port}/${chargePointId}`, [ OCPPversion ])
     setWs(socketInfo.webSocket)
     setStatus(pointStatus.connecting)
@@ -94,18 +94,18 @@ const Main = () => {
   }
 
   const attemptReconnect = () => {
-    if (!settingsState.mainSettings.autoReconnect || reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-      if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    if (!settingsStateRef.current.mainSettings.autoReconnect || reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
+      if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
         updateLog({ time: getTime(), type: logTypes.error, message: `Reconnection failed after ${MAX_RECONNECT_ATTEMPTS} attempts` })
       }
       setIsReconnecting(false)
-      clearInterval(reconnectInterval)
-      reconnectAttempts = 0
+      clearInterval(reconnectIntervalRef.current)
+      reconnectAttemptsRef.current = 0
       return
     }
 
-    reconnectAttempts++
-    updateLog({ time: getTime(), type: logTypes.socket, message: `Reconnection attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}` })
+    reconnectAttemptsRef.current++
+    updateLog({ time: getTime(), type: logTypes.socket, message: `Reconnection attempt ${reconnectAttemptsRef.current}/${MAX_RECONNECT_ATTEMPTS}` })
     startConnection()
   }
 
@@ -113,10 +113,13 @@ const Main = () => {
   useEffect(() => {
     if (!ws && settingsState.mainSettings.autoReconnect && !isReconnecting) {
       setIsReconnecting(true)
-      reconnectAttempts = 0
-      clearInterval(reconnectInterval)
-      reconnectInterval = setInterval(attemptReconnect, RECONNECT_INTERVAL)
-      return () => clearInterval(reconnectInterval)
+      reconnectAttemptsRef.current = 0
+      clearInterval(reconnectIntervalRef.current)
+      reconnectIntervalRef.current = setInterval(attemptReconnect, RECONNECT_INTERVAL)
+      return () => {
+        clearInterval(reconnectIntervalRef.current)
+        reconnectIntervalRef.current = null
+      }
     }
   }, [ws, settingsState.mainSettings.autoReconnect])
 
@@ -124,8 +127,8 @@ const Main = () => {
   useEffect(() => {
     const handleConnectEvent = () => {
       // Clear any existing reconnect intervals when manually connecting
-      clearInterval(reconnectInterval)
-      reconnectAttempts = 0
+      clearInterval(reconnectIntervalRef.current)
+      reconnectAttemptsRef.current = 0
       setIsReconnecting(false)
       startConnection()
     }
@@ -135,7 +138,7 @@ const Main = () => {
     return () => {
       window.removeEventListener('ocpp-connect', handleConnectEvent)
     }
-  }, [settingsState.mainSettings]) // Re-add listener if settings change
+  }, []) // Only mount/dismount once
 
 
   const centralSystemSend = (command, localCommand) => {
@@ -162,7 +165,7 @@ const Main = () => {
       centralSystemSend(result.ocppCommand, result.lastCommand)
 
       // Send connector(s) status(es)
-      for (let i = 1; i <= settingsState.mainSettings.numberOfConnectors; i++) {
+      for (let i = 1; i <= settingsStateRef.current.mainSettings.numberOfConnectors; i++) {
         const currentConnector = await sendCommand('StatusNotification', { connectorId: i, status: connectors[i].status })
         centralSystemSend(currentConnector.ocppCommand, currentConnector.lastCommand)
       }
@@ -171,12 +174,16 @@ const Main = () => {
       setInitialBootNotification(true)
 
       // Set heartbeat interval
-      const index = settingsState.stationSettings.findIndex(x => x.key === 'HeartbeatInterval')
-      settingsState.stationSettings[index].value = message.interval
-      heartbeatInterval = setInterval(async () => {
-        const result = await sendCommand('Heartbeat', {})
-        centralSystemSend(result.ocppCommand, result.lastCommand)
-      }, settingsState.stationSettings[index].value * 1000)
+      const index = settingsStateRef.current.stationSettings.findIndex(x => x.key === 'HeartbeatInterval')
+      const updatedSettings = { ...settingsStateRef.current }
+      updatedSettings.stationSettings[index] = { ...updatedSettings.stationSettings[index], value: message.interval }
+      setSettingsState(updatedSettings)
+      clearInterval(heartbeatIntervalRef.current)
+      heartbeatIntervalRef.current = setInterval(() => {
+        sendCommand('Heartbeat', {}).then(result => {
+          centralSystemSend(result.ocppCommand, result.lastCommand)
+        })
+      }, message.interval * 1000)
     }
 
     if (command === 'Authorize' && message.idTagInfo.status === 'Accepted') {
@@ -190,9 +197,10 @@ const Main = () => {
       connectors[connector].status = connectorStatus.Charging
       updateConnector[connector]({ ...connectors[connector] })
 
-      const index = settingsState.stationSettings.findIndex(x => x.key === 'MeterValueSampleInterval')
+      const index = settingsStateRef.current.stationSettings.findIndex(x => x.key === 'MeterValueSampleInterval')
 
-      meterValueInterval[connector] = setInterval(async () => {
+      clearInterval(meterValueIntervalRef.current[connector])
+      meterValueIntervalRef.current[connector] = setInterval(() => {
         connectors[connector].currentMeterValue = connectors[connector].currentMeterValue + 50
         updateConnector[connector]({ ...connectors[connector] })
 
@@ -200,13 +208,14 @@ const Main = () => {
           connectorId: connectors[connector].connectorId,
           transactionId: connectors[connector].transactionId,
           currentMeterValue: connectors[connector].currentMeterValue,
-          ocmfSignedMeterValues: settingsState.mainSettings.ocmfSignedMeterValues,
-          ocmfPrivateKey: settingsState.mainSettings.ocmfPrivateKey,
+          ocmfSignedMeterValues: settingsStateRef.current.mainSettings.ocmfSignedMeterValues,
+          ocmfPrivateKey: settingsStateRef.current.mainSettings.ocmfPrivateKey,
         }
 
-        const result = await sendCommand('MeterValues', metaData)
-        centralSystemSend(result.ocppCommand, result.lastCommand)
-      }, settingsState.stationSettings[index].value * 1000)
+        sendCommand('MeterValues', metaData).then(result => {
+          centralSystemSend(result.ocppCommand, result.lastCommand)
+        })
+      }, settingsStateRef.current.stationSettings[index].value * 1000)
 
       const statusData = await sendCommand('StatusNotification', { connectorId: connector, status: connectors[connector].status })
       centralSystemSend(statusData.ocppCommand, statusData.lastCommand)
@@ -218,7 +227,8 @@ const Main = () => {
       connectors[connector].inTransaction = false
       connectors[connector].status = connectorStatus.Finishing
       updateConnector[connector]({ ...connectors[connector] })
-      clearInterval(meterValueInterval[connector])
+      clearInterval(meterValueIntervalRef.current[connector])
+      meterValueIntervalRef.current[connector] = null
       const statusData = await sendCommand('StatusNotification', { connectorId: connector, status: connectors[connector].status })
       centralSystemSend(statusData.ocppCommand, statusData.lastCommand)
     }
@@ -249,14 +259,14 @@ const Main = () => {
         metaData.startMeterValue = connectors[connId].startMeterValue
         connectors[connId].startTimestamp = new Date()
         metaData.startTimestamp = connectors[connId].startTimestamp
-        metaData.ocmfSignedMeterValues = settingsState.mainSettings.ocmfSignedMeterValues
-        metaData.ocmfPrivateKey = settingsState.mainSettings.ocmfPrivateKey
+        metaData.ocmfSignedMeterValues = settingsStateRef.current.mainSettings.ocmfSignedMeterValues
+        metaData.ocmfPrivateKey = settingsStateRef.current.mainSettings.ocmfPrivateKey
         const newTransaction = await sendCommand('StartTransaction', metaData)
         centralSystemSend(newTransaction.ocppCommand, newTransaction.lastCommand)
         break;
       case 'RemoteStopTransaction':
           connId = null
-          for (let i = 1; i <= settingsState.mainSettings.numberOfConnectors; i++) {
+          for (let i = 1; i <= settingsStateRef.current.mainSettings.numberOfConnectors; i++) {
             if (connectors[i].transactionId === payload.transactionId) connId = i
           }
 
@@ -273,8 +283,8 @@ const Main = () => {
         metaData.startMeterValue = connectors[connId].startMeterValue && 0
         metaData.startTimestamp = connectors[connId].startTimestamp
         metaData.stopTimestamp = new Date()
-        metaData.ocmfSignedMeterValues = settingsState.mainSettings.ocmfSignedMeterValues
-        metaData.ocmfPrivateKey = settingsState.mainSettings.ocmfPrivateKey
+        metaData.ocmfSignedMeterValues = settingsStateRef.current.mainSettings.ocmfSignedMeterValues
+        metaData.ocmfPrivateKey = settingsStateRef.current.mainSettings.ocmfPrivateKey
         // Set this flag to send one or two signed meter values
         metaData.withSignedStartMeterValue = true
         const endTransaction = await sendCommand('StopTransaction', metaData)
@@ -293,32 +303,32 @@ const Main = () => {
         metaData.transactionId = connectors[connId].transactionId
         metaData.currentMeterValue = connectors[connId].currentMeterValue
         metaData.status = connectors[connId].status
-        metaData.bootNotification = settingsState.bootNotification
+        metaData.bootNotification = settingsStateRef.current.bootNotification
         metaData.diagnosticStatus = uploading ? 'Uploading' : 'Idle'
-        metaData.firmWareStatus = settingsState.simulation.firmWareStatus
+        metaData.firmWareStatus = settingsStateRef.current.simulation.firmWareStatus
         const triggerMessage = await  sendCommand(requestedMessage, metaData)
         centralSystemSend(triggerMessage.ocppCommand, triggerMessage.lastCommand)
         break;
       case 'UnlockConnector':
-        const getSetting = settingsState.stationSettings.findIndex(x => x.key === 'UnlockConnectorOnEVSideDisconnect')
-        if (getSetting === -1 || settingsState.stationSettings[getSetting].value === false) {
+        const getSetting = settingsStateRef.current.stationSettings.findIndex(x => x.key === 'UnlockConnectorOnEVSideDisconnect')
+        if (getSetting === -1 || settingsStateRef.current.stationSettings[getSetting].value === false) {
           ws.send(JSON.stringify([ 3, id, { status: 'NotSupported' }]))
           return
         }
 
-        ws.send(JSON.stringify([ 3, id, { status: connId === 1 ? settingsState.simulation.connectorOneUnlock : settingsState.simulation.connectorTwoUnlock }]))
+        ws.send(JSON.stringify([ 3, id, { status: connId === 1 ? settingsStateRef.current.simulation.connectorOneUnlock : settingsStateRef.current.simulation.connectorTwoUnlock }]))
         break;
       case 'GetConfiguration':
-        const returnConfiguration = { configurationKey: settingsState.stationSettings, unknownKey: [] }
+        const returnConfiguration = { configurationKey: settingsStateRef.current.stationSettings, unknownKey: [] }
         ws.send(JSON.stringify([ 3, id, returnConfiguration]))
         break;
       case 'ChangeConfiguration':
         const { key, value } = payload
         let changeValueStatus = 'Accepted'
-        const findSetting = settingsState.stationSettings.findIndex(x => x.key === key)
+        const findSetting = settingsStateRef.current.stationSettings.findIndex(x => x.key === key)
         if (findSetting === -1) changeValueStatus = 'NotSupported'
 
-        const checkSetting = settingsState.stationSettings[findSetting]
+        const checkSetting = settingsStateRef.current.stationSettings[findSetting]
         if (checkSetting.readonly) changeValueStatus = 'Rejected'
         if ((checkSetting.value === 'true' || checkSetting.value === 'false') && value !== 'true' && value !== 'false') changeValueStatus = 'Rejected'
         if (!isNaN(checkSetting.value) && isNaN(value)) changeValueStatus = 'Rejected'
@@ -326,17 +336,18 @@ const Main = () => {
         ws.send(JSON.stringify([ 3, id, { status: changeValueStatus }]))
 
         const element = { ...checkSetting, value }
-        settingsState.stationSettings[findSetting] = element
-        setSettingsState( { ...settingsState } )
+        const updatedSettings = { ...settingsStateRef.current }
+        updatedSettings.stationSettings[findSetting] = element
+        setSettingsState(updatedSettings)
         break;
       case 'GetDiagnostics':
-        ws.send(JSON.stringify([ 3, id, { fileName: settingsState.simulation.diagnosticFileName }]))
+        ws.send(JSON.stringify([ 3, id, { fileName: settingsStateRef.current.simulation.diagnosticFileName }]))
         if (!uploading) {
-          clearInterval(uploadInterval)
+          clearInterval(uploadIntervalRef.current)
           setUploading(true)
-          uploadSeconds = settingsState.simulation.diagnosticUploadTime
-          setSeconds(uploadSeconds)
-          uploadInterval = setInterval(async () => await uploadSimulate(), 1000)
+          uploadSecondsRef.current = settingsStateRef.current.simulation.diagnosticUploadTime
+          setSeconds(uploadSecondsRef.current)
+          uploadIntervalRef.current = setInterval(() => { uploadSimulate() }, 1000)
           const result = await  sendCommand('DiagnosticsStatusNotification', { diagnosticStatus: 'Uploading' })
           centralSystemSend(result.ocppCommand, result.lastCommand)
         }
@@ -347,22 +358,24 @@ const Main = () => {
   }
 
 
-  if (ws) {
-    ws.onopen = async () => {
+  // Set up WebSocket event handlers inside useEffect for proper lifecycle management
+  useEffect(() => {
+    if (!ws) return
+
+    const handleOpen = async () => {
       setStatus(pointStatus.connected)
       socketInfo.lastStatus = pointStatus.connected
       updateLog({ time: getTime(), type: logTypes.socket, message: 'Charge point connected' })
 
-      // Reset reconnect attempts when connection is successful
-      reconnectAttempts = 0
+      reconnectAttemptsRef.current = 0
       setIsReconnecting(false)
-      clearInterval(reconnectInterval)
+      clearInterval(reconnectIntervalRef.current)
 
-      const initialBoot = await sendCommand('BootNotification', { bootNotification: settingsState.bootNotification })
+      const initialBoot = await sendCommand('BootNotification', { bootNotification: settingsStateRef.current.bootNotification })
       centralSystemSend(initialBoot.ocppCommand, initialBoot.lastCommand)
     }
 
-    ws.onclose = (event) => {
+    const handleClose = (event) => {
       let status = pointStatus.disconnected
       if (event.code === 1006) {
         updateLog( { time: getTime(), type: logTypes.error, message: 'Connection problem' })
@@ -370,26 +383,26 @@ const Main = () => {
       } else {
         updateLog({ time: getTime(), type: logTypes.socket, message: 'Charge point disconnected' })
       }
-      clearInterval(heartbeatInterval)
-      clearInterval(meterValueInterval[1])
-      clearInterval(meterValueInterval[2])
+      clearInterval(heartbeatIntervalRef.current)
+      clearInterval(meterValueIntervalRef.current[1])
+      clearInterval(meterValueIntervalRef.current[2])
       setInitialBootNotification(false)
       setStatus(status)
       setUploading(false)      
-      clearInterval(uploadInterval)
+      clearInterval(uploadIntervalRef.current)
       setWs('')
 
       // Start auto reconnect if enabled
-      if (settingsState.mainSettings.autoReconnect && !isReconnecting) {
+      if (settingsStateRef.current.mainSettings.autoReconnect && !isReconnectingRef.current) {
         setIsReconnecting(true)
-        reconnectAttempts = 0
-        clearInterval(reconnectInterval)
+        reconnectAttemptsRef.current = 0
+        clearInterval(reconnectIntervalRef.current)
         updateLog({ time: getTime(), type: logTypes.socket, message: `Auto reconnect enabled. Will attempt reconnection in ${RECONNECT_INTERVAL/1000} seconds.` })
-        reconnectInterval = setInterval(attemptReconnect, RECONNECT_INTERVAL)
+        reconnectIntervalRef.current = setInterval(attemptReconnect, RECONNECT_INTERVAL)
       }
     }
 
-    ws.onmessage = async (msg) => {
+    const handleMessage = async (msg) => {
       const [ type, id, message, payload ] = JSON.parse(msg.data)
       switch (type) {
         case 2:
@@ -402,7 +415,17 @@ const Main = () => {
           break;
       }
     }
-  }
+
+    ws.onopen = handleOpen
+    ws.onclose = handleClose
+    ws.onmessage = handleMessage
+
+    return () => {
+      ws.onopen = null
+      ws.onclose = null
+      ws.onmessage = null
+    }
+  }, [ws])
 
   return (
     <Container sx={{maxWidth: '1366px !important'}}>
@@ -441,7 +464,7 @@ const Main = () => {
               <Box display='flex' justifyContent='flex-end' alignContent='center'>
                 {isReconnecting && (
                   <Typography variant='body2' color='info.main' sx={{ mr: 2 }}>
-                    Auto reconnect: {reconnectAttempts}/{MAX_RECONNECT_ATTEMPTS}
+                    Auto reconnect: {reconnectAttemptsRef.current}/{MAX_RECONNECT_ATTEMPTS}
                   </Typography>
                 )}
                 <Speed sx={{ml: 1, cursor: 'pointer'}} color='primary' onClick={(event) => showHelpText(event, 'MeterValueSampleInterval')} />
