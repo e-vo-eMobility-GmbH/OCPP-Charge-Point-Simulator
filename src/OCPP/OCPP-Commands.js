@@ -146,7 +146,7 @@ export const sendCommand = async (command, metaData) => {
               {
                 measurand: "Voltage",
                 unit: "V",
-                value: metaData.voltage?.toString(),
+                value: metaData.voltage?.toString() ?? "0",
               },
               {
                 measurand: "Current.Import",
